@@ -9,55 +9,75 @@ public class WebServer {
     public static void main(String[] args) {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             System.out.println("Server started on port " + PORT);
-
+    
             while (true) {
                 Socket clientSocket = serverSocket.accept();
-                handleClientRequest(clientSocket);
+    
+                // Each client handled by a separate thread
+                new Thread(() -> handleClientRequest(clientSocket)).start();
             }
-
+    
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+    
 
     private static void handleClientRequest(Socket clientSocket) {
         try (
             InputStream input = clientSocket.getInputStream();
             OutputStream output = clientSocket.getOutputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-            PrintWriter writer = new PrintWriter(output, true)
+            BufferedReader reader = new BufferedReader(new InputStreamReader(input))
         ) {
-            // Read HTTP request
             String requestLine = reader.readLine();
             System.out.println("Received Request: " + requestLine);
-
+    
             if (requestLine != null && requestLine.startsWith("GET ")) {
                 String requestedFile = requestLine.split(" ")[1];
-
-                // Default route to "/index.html"
+    
                 if (requestedFile.equals("/")) {
                     requestedFile = "/index.html";
                 }
-
+    
                 String filePath = PUBLIC_DIR + requestedFile;
-                
                 System.out.println("Requested File Path: " + filePath);
-                // Check if file exists
-                if (Files.exists(Paths.get(filePath))) {
+    
+                File file = new File(filePath);
+                if (file.exists()) {
                     String contentType = getContentType(filePath);
-                    sendResponse(writer, 200, "OK", contentType, loadFileContent(filePath));
+                    byte[] fileBytes = Files.readAllBytes(file.toPath());
+    
+                    // HTTP headers
+                    String header = "HTTP/1.1 200 OK\r\n" +
+                            "Content-Type: " + contentType + "\r\n" +
+                            "Content-Length: " + fileBytes.length + "\r\n" +
+                            "Connection: close\r\n\r\n";
+    
+                    output.write(header.getBytes());
+                    output.write(fileBytes);
+                    output.flush();
                 } else {
-                    sendResponse(writer, 404, "Not Found", "text/html", "<h1>404 - Page Not Found</h1>");
+                    String notFound = "<h1>404 - Page Not Found</h1>";
+                    String header = "HTTP/1.1 404 Not Found\r\n" +
+                            "Content-Type: text/html\r\n" +
+                            "Content-Length: " + notFound.length() + "\r\n\r\n";
+                    output.write(header.getBytes());
+                    output.write(notFound.getBytes());
                 }
-
             } else {
-                sendResponse(writer, 400, "Bad Request", "text/html", "<h1>400 - Bad Request</h1>");
+                String badRequest = "<h1>400 - Bad Request</h1>";
+                String header = "HTTP/1.1 400 Bad Request\r\n" +
+                        "Content-Type: text/html\r\n" +
+                        "Content-Length: " + badRequest.length() + "\r\n\r\n";
+                output.write(header.getBytes());
+                output.write(badRequest.getBytes());
             }
-
+    
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+    
 
     // Load file content
     private static String loadFileContent(String filePath) {
@@ -73,8 +93,15 @@ public class WebServer {
         if (filePath.endsWith(".html")) return "text/html";
         if (filePath.endsWith(".css")) return "text/css";
         if (filePath.endsWith(".js")) return "application/javascript";
-        return "text/plain";
+        if (filePath.endsWith(".json")) return "application/json";
+        if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg")) return "image/jpeg";
+        if (filePath.endsWith(".png")) return "image/png";
+        if (filePath.endsWith(".gif")) return "image/gif";
+        if (filePath.endsWith(".mp4")) return "video/mp4";
+        if (filePath.endsWith(".mp3")) return "audio/mpeg";
+        return "application/octet-stream"; // Default for unknown binary
     }
+    
 
     // Send HTTP response
     private static void sendResponse(PrintWriter writer, int statusCode, String statusText,
